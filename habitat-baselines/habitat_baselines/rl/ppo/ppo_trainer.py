@@ -228,19 +228,19 @@ class PPOTrainer(BaseRLTrainer):
 
         # remove the non scalar measures from the measures since they can only be used in
         # evaluation
-        for non_scalar_metric in NON_SCALAR_METRICS:
-            non_scalar_metric_root = non_scalar_metric.split(".")[0]
-            if non_scalar_metric_root in self.config.habitat.task.measurements:
-                with read_write(self.config):
-                    OmegaConf.set_struct(self.config, False)
-                    self.config.habitat.task.measurements.pop(
-                        non_scalar_metric_root
-                    )
-                    OmegaConf.set_struct(self.config, True)
-                if self.config.habitat_baselines.verbose:
-                    logger.info(
-                        f"Removed metric {non_scalar_metric_root} from metrics since it cannot be used during training."
-                    )
+        # for non_scalar_metric in NON_SCALAR_METRICS:
+        #     non_scalar_metric_root = non_scalar_metric.split(".")[0]
+        #     if non_scalar_metric_root in self.config.habitat.task.measurements:
+        #         with read_write(self.config):
+        #             OmegaConf.set_struct(self.config, False)
+        #             self.config.habitat.task.measurements.pop(
+        #                 non_scalar_metric_root
+        #             )
+        #             OmegaConf.set_struct(self.config, True)
+        #         if self.config.habitat_baselines.verbose:
+        #             logger.info(
+        #                 f"Removed metric {non_scalar_metric_root} from metrics since it cannot be used during training."
+        #             )
 
         self._init_envs()
 
