@@ -86,13 +86,19 @@ class HabitatEvaluator(Evaluator):
 
         if len(config.habitat_baselines.eval.video_option) > 0:
             # Add the first frame of the episode to the video.
+            # rgb_frames: List[List[np.ndarray]] = [
+            #     [
+            #         observations_to_image(
+            #             {k: v[env_idx] for k, v in batch.items()}, {}
+            #         )
+            #     ]
+            #     for env_idx in range(config.habitat_baselines.num_environments)
+            # ]
+
+            # Work around: don't add the observations after the reset to the video
+            # because currently there is no way to get the info for the first frame. 
             rgb_frames: List[List[np.ndarray]] = [
-                [
-                    observations_to_image(
-                        {k: v[env_idx] for k, v in batch.items()}, {}
-                    )
-                ]
-                for env_idx in range(config.habitat_baselines.num_environments)
+                [] for env_idx in range(config.habitat_baselines.num_environments)
             ]
         else:
             rgb_frames = None
@@ -220,6 +226,7 @@ class HabitatEvaluator(Evaluator):
                 disp_info = {
                     k: v for k, v in infos[i].items() if k not in rank0_keys
                 }
+                disp_scalar_info = extract_scalars_from_info(disp_info)
 
                 if len(config.habitat_baselines.eval.video_option) > 0:
                     # TODO move normalization / channel changing out of the policy and undo it here
@@ -233,12 +240,12 @@ class HabitatEvaluator(Evaluator):
                             {k: v[i] * 0.0 for k, v in batch.items()},
                             disp_info,
                         )
-                        final_frame = overlay_frame(final_frame, disp_info)
+                        final_frame = overlay_frame(final_frame, disp_scalar_info)
                         rgb_frames[i].append(final_frame)
                         # The starting frame of the next episode will be the final element..
                         rgb_frames[i].append(frame)
                     else:
-                        frame = overlay_frame(frame, disp_info)
+                        frame = overlay_frame(frame, disp_scalar_info)
                         rgb_frames[i].append(frame)
 
                 # episode ended
@@ -265,7 +272,7 @@ class HabitatEvaluator(Evaluator):
                             images=rgb_frames[i][:-1],
                             episode_id=f"{current_episodes_info[i].episode_id}_{ep_eval_count[k]}",
                             checkpoint_idx=checkpoint_index,
-                            metrics=extract_scalars_from_info(disp_info),
+                            metrics=disp_scalar_info,
                             fps=config.habitat_baselines.video_fps,
                             tb_writer=writer,
                             keys_to_include_in_name=config.habitat_baselines.eval_keys_to_include_in_name,
