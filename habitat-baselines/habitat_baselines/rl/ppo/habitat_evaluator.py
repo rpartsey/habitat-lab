@@ -45,7 +45,11 @@ class HabitatEvaluator(Evaluator):
         env_spec,
         rank0_keys,
     ):
+        n_envs = envs.num_envs
+
         observations = envs.reset()
+        infos = envs.get_info()
+        
         observations = envs.post_step(observations)
         batch = batch_obs(observations, device=device)
         batch = apply_obs_transforms_batch(batch, obs_transforms)  # type: ignore
@@ -54,7 +58,7 @@ class HabitatEvaluator(Evaluator):
             agent.actor_critic.policy_action_space
         )
 
-        current_episode_reward = torch.zeros(envs.num_envs, 1, device="cpu")
+        current_episode_reward = torch.zeros(n_envs, 1, device="cpu")
 
         test_recurrent_hidden_states = torch.zeros(
             (
@@ -84,24 +88,22 @@ class HabitatEvaluator(Evaluator):
         ] = {}  # dict of dicts that stores stats per episode
         ep_eval_count: Dict[Any, int] = defaultdict(lambda: 0)
 
+        rgb_frames: List[List[np.ndarray]] = None
+        rgb_frames_infos: List[List[Dict]] = None
         if len(config.habitat_baselines.eval.video_option) > 0:
-            # Add the first frame of the episode to the video.
-            # rgb_frames: List[List[np.ndarray]] = [
-            #     [
-            #         observations_to_image(
-            #             {k: v[env_idx] for k, v in batch.items()}, {}
-            #         )
-            #     ]
-            #     for env_idx in range(config.habitat_baselines.num_environments)
-            # ]
+            rgb_frames = [[] for _ in range(n_envs)]
+            rgb_frames_infos: List[List[Dict]] = [[] for _ in range(n_envs)]
+            for env_idx in range(config.habitat_baselines.num_environments):
+                # Exclude the keys from `_rank0_keys` from displaying in the video
+                disp_info = {
+                    k: v for k, v in infos[env_idx].items() if k not in rank0_keys
+                }
+                disp_scalar_info = extract_scalars_from_info(disp_info)
 
-            # Work around: don't add the observations after the reset to the video
-            # because currently there is no way to get the info for the first frame. 
-            rgb_frames: List[List[np.ndarray]] = [
-                [] for env_idx in range(config.habitat_baselines.num_environments)
-            ]
-        else:
-            rgb_frames = None
+                # Add the first frame of the episode to the video.
+                frame = observations_to_image({k: v[env_idx] for k, v in batch.items()}, disp_info)
+                rgb_frames[env_idx].append(frame)
+                rgb_frames_infos[env_idx].append(disp_scalar_info)
 
         if len(config.habitat_baselines.eval.video_option) > 0:
             os.makedirs(config.habitat_baselines.video_dir, exist_ok=True)
@@ -130,7 +132,7 @@ class HabitatEvaluator(Evaluator):
         agent.eval()
         while (
             len(stats_episodes) < (number_of_eval_episodes * evals_per_ep)
-            and envs.num_envs > 0
+            and n_envs > 0
         ):
             current_episodes_info = envs.current_episodes()
 
@@ -209,7 +211,6 @@ class HabitatEvaluator(Evaluator):
             current_episode_reward += rewards
             next_episodes_info = envs.current_episodes()
             envs_to_pause = []
-            n_envs = envs.num_envs
             for i in range(n_envs):
                 if (
                     ep_eval_count[
@@ -230,23 +231,28 @@ class HabitatEvaluator(Evaluator):
 
                 if len(config.habitat_baselines.eval.video_option) > 0:
                     # TODO move normalization / channel changing out of the policy and undo it here
-                    frame = observations_to_image(
-                        {k: v[i] for k, v in batch.items()}, disp_info
-                    )
+
                     if not not_done_masks[i].any().item():
                         # The last frame corresponds to the first frame of the next episode
-                        # but the info is correct. So we use a black frame
-                        final_frame = observations_to_image(
-                            {k: v[i] * 0.0 for k, v in batch.items()},
-                            disp_info,
-                        )
-                        final_frame = overlay_frame(final_frame, disp_scalar_info)
-                        rgb_frames[i].append(final_frame)
-                        # The starting frame of the next episode will be the final element..
+                        # but the info is correct
+                        rgb_frames[i].append(rgb_frames[i][-1].copy())
+                        rgb_frames_infos[i].append(disp_scalar_info)
+                        
+                        # The starting frame of the next episode will be the final element
+                        infos = envs.get_info()
+                        # Exclude the keys from `_rank0_keys` from displaying in the video
+                        disp_info = {
+                            k: v for k, v in infos[i].items() if k not in rank0_keys
+                        }
+                        disp_scalar_info = extract_scalars_from_info(disp_info)
+                        
+                        frame = observations_to_image({k: v[i] for k, v in batch.items()}, disp_info)
                         rgb_frames[i].append(frame)
+                        rgb_frames_infos[i].append(disp_scalar_info)
                     else:
-                        frame = overlay_frame(frame, disp_scalar_info)
+                        frame = observations_to_image({k: v[i] for k, v in batch.items()}, disp_info)
                         rgb_frames[i].append(frame)
+                        rgb_frames_infos[i].append(disp_scalar_info)
 
                 # episode ended
                 if not not_done_masks[i].any().item():
@@ -265,11 +271,19 @@ class HabitatEvaluator(Evaluator):
                     stats_episodes[(k, ep_eval_count[k])] = episode_stats
 
                     if len(config.habitat_baselines.eval.video_option) > 0:
+                        video_frames = [
+                            overlay_frame(frame, info) 
+                            for frame, info in zip(
+                                rgb_frames[i][:-1], 
+                                rgb_frames_infos[i][:-1]
+                            )
+                        ]
+
                         generate_video(
                             video_option=config.habitat_baselines.eval.video_option,
                             video_dir=config.habitat_baselines.video_dir,
                             # Since the final frame is the start frame of the next episode.
-                            images=rgb_frames[i][:-1],
+                            images=video_frames,
                             episode_id=f"{current_episodes_info[i].episode_id}_{ep_eval_count[k]}",
                             checkpoint_idx=checkpoint_index,
                             metrics=disp_scalar_info,
@@ -280,6 +294,7 @@ class HabitatEvaluator(Evaluator):
 
                         # Since the starting frame of the next episode is the final frame.
                         rgb_frames[i] = rgb_frames[i][-1:]
+                        rgb_frames_infos[i] = rgb_frames_infos[i][-1:]
 
                     gfx_str = infos[i].get(GfxReplayMeasure.cls_uuid, "")
                     if gfx_str != "":

@@ -92,7 +92,7 @@ class RLTaskEnv(habitat.RLEnv):
             done = True
         return done
 
-    def get_info(self, observations):
+    def get_info(self, observations=None):
         return self._env.get_metrics()
 
 

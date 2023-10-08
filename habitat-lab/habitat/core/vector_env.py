@@ -67,7 +67,7 @@ CALL_COMMAND = "call"
 COUNT_EPISODES_COMMAND = "count_episodes"
 
 EPISODE_OVER_NAME = "episode_over"
-GET_METRICS_NAME = "get_metrics"
+GET_INFO_NAME = "get_info"
 CURRENT_EPISODE_NAME = "current_episode"
 NUMBER_OF_EPISODE_NAME = "number_of_episodes"
 ACTION_SPACE_NAME = "action_space"
@@ -369,9 +369,9 @@ class VectorEnv:
             results.append(read_fn())
         return results
 
-    def get_metrics(self):
+    def get_info(self):
         for write_fn in self._connection_write_fns:
-            write_fn((CALL_COMMAND, (GET_METRICS_NAME, None)))
+            write_fn((CALL_COMMAND, (GET_INFO_NAME, None)))
         results = []
         for read_fn in self._connection_read_fns:
             results.append(read_fn())

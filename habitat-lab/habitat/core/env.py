@@ -456,7 +456,7 @@ class RLEnv(gym.Env):
         """
         raise NotImplementedError
 
-    def get_info(self, observations) -> Dict[Any, Any]:
+    def get_info(self, observations=None) -> Dict[Any, Any]:
         r"""..
 
         :param observations: observations from simulator and task.
